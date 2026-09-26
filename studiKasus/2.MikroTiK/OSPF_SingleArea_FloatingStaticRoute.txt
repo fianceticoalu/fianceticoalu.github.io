@@ -1,0 +1,184 @@
+
+
+-----------------------------------------------------------------------------------
+PENGENALAN OSPF - PADA EKOSISTEM MIKROTIK ROS 7 
+*** DENGAN STUDI KASUS OSPF SINGLE AREA + FLOATING STATIC ROUTE SEBAGAI JALUR BACKUP ***
+- By Fiance Ticoalu ~ Mikrotik Certifed Routing Engineer
+-----------------------------------------------------------------------------------
+
+#SEBENARNYA PEMBAHASAN OSPF CUKUP KOMPLEKS, TAPI DISINI AKAN SAYA SEDERHANAKAN SECARA GARIS BESAR SEHINGGA MUDAH DIPAHAMI, DISIMULASIKAN BAHKAN DITERAPKAN PADA DEVICE ASLI.
+#UNTUK BISA MENGIKUTI PEMBAHASAN INI, PALING TIDAK PEMBACA HARUS MENGERTI NETWORK FUNDAMENTAL, ATAU TERSERTIFIKASI MTCNA ATAU CCNA DAN SETARA ITU 
+
+1.CARA KERJA OSPF
+  router router OSPF hanya akan bertukar informasi routing dengan router router lain dalam satu AS (autonomous system)
+  tapi sebelum itu ada tahap tahapan yang dilakukan :
+
+  - router OSPF akan mengirimkan beberapa OSPF paket
+  - OSPF paket itu digunakan untuk membangun link state database
+  - link state database + algoritma SPF akan menghasilkan routing tabel yang akurat
+
+  - sebelum saling bertukar informasi router router OSPF harus dalam kondisi adjacency
+  - setelah dalam kondisi adjacency -> router OSPF bertukar informasi routing -> jaringan dalam kondisi convergence
+  - untuk mencapai convergence, router router OSPF mengumpulkan informasi terkait directly connected network miliknya
+  - informasi tersebut dikumplan  dikirimkan ke router router OSPF lainya dalam satu AS oleh protokol LSA (Link state advertisement) ~ bahkan bisa dalam kategori flooding
+  - router router yang menerima LSA, akan menggunakan LSA tersebut untuk membangun linkstate database ~ tentu dengan acuan LSA yang dibuat router itu sendiri
+
+  - setelah link state database terbentuk, OSPF akan menjalankan SPF algoritma
+  - SPF algoritma tersebut akan menghasilkan SPF tree
+  - SPF tree ibarat topologi pada jaringan ospf dalam suatu AS, dan router router OSPF akan menentukan best path untuk suatu remote network
+
+  - LSA hanya dikirimkan pada saat router dihidupkan atau pada saat ada perubahan jaringan
+  - tapi untuk menjaga keakuratan, LSA dikirmkan juga setiap 30 menit.
+  - OSPF ini termasuk dalam kategori open standard ~ jadi tidak dimiliki oleh vendor tertentu, dengan kata lain bisa diterapkan oleh router router vendor apapun
+
+2.OSPF PAKET
+  OSPF paket ini digunakan pada saat router router berusaha mencapai kondisi adjacency maupun pada proses saling bertukar informasi
+  ada 5 OSPF paket:
+  1. Hello packet
+  2. DBD ~ database description packet
+  3. LSR ~ link state request packet
+  4. LSU ~ link state update packet
+  5. LSAck ~ link state ack packet
+
+  - hello packet ini digunakan untuk mencapai kondisi adjacency ~ paket ini krusial, karena kalau tidak ada adjacency, tidak ada LSA dan tidak ada LSA tidak ada informasi yang bisa dibagikan antar router, dan tidak ada informasi yang dibagikan jelas kondisi jaringan tidak bisa convergence.
+  - DBD packet digunakan untuk sinkronisasi link state database, jadi DBD packet ini berisi data linkstate database router...router penerima akan membandingkan
+  link state database yang dia terima dengan link state database miliknya sendiri ~ dikirim secara unicast dengan dst-address router
+  - LSR packet ini digunakan untuk request linkstate database dari router lain ~ dikirim secara unicast juga
+  - LSU packet ini adalah jawaban dari LSR packet yang dikirim ~ LSU packet ini berisi LSA dan link state database - jadi terkadang LSU dan LSA ini mirip tapi berbeda
+  - LSAck atau disebut LSA acknowledgement adalah packet yang menginformasikan ke router pengirim LSU, bahwa LSU sudah diterima oleh router yang request
+
+3.OSPF AREA
+  OSPF menggunakan konsep area, pengelompokan area ini ditujukan supaya mengurangi flooding LSA, karena LSA tidak akan dikirim ke area lain
+  ini menguntungkan karena sebagai berikut
+
+  - Mengurangi besarnya tabel routng
+  - Otomatis menghemat resource router seperti cpu, dan memori
+  - Menghemat bandwith dan tentunya traffic tidak penuh karena flooding LSA
+
+  untuk mengidentifikasi area pada OSPF, yaitu menggunakan area-id
+
+  - Area-id menggunakan penulisan 32 bit ~ sama seperti ip address, tapi area-id tidak sama dengan ip address
+
+  dalam OSPF, secara besar area dibagi menjadi 2
+
+  1. Backbone area
+  2. Regular area 
+     - Standard area
+     - Stub area
+     - Totally stub area
+     - Not so stubby area (NSSA)
+     - Totally stubby NSSA
+
+  - Backbone area : area-id 0.0.0.0 | area ini wajib selalu ada |jika dalam satu AS jaringan ada lebih dari satu area, area backbone ini digunakan sebagai transit ke area lain | menurut para pakar, dalam OSPF per area max 50 router
+  - Reguler area : area non backbone | jika ada lebih dari dari 1 regular are dalam 1 AS jaringan- maka regular area wajib melewati backbone are dalam berkomunikasi
+  - Adakalanya reguler area tidak terhubung secara fisik langsung ke backbone area, karena itu perlu adanya virtual link, supaya regular area yang terpisah secara fisik bisa berkomunikasi dengan backbone area
+
+  4.OSPF ROUTER
+    Dalam OSPF setiap router mempunyai jenis dan peranya masing masing, sehingga dari peran peran ini masing masing router membawa pesan LSA yang berbeda beda
+    berikut jenis jenis router OSPF
+    - INTERNAL ROUTER ~ IR
+    - BACKBONE ROUTER ~ BR
+    - AREA BORDER ROUTER ~ ABR
+    - AUTONOMOUS SYSTEM BOUNDARY ROUTER ~ ASBR
+
+    INTERNAL ROUTER : Semua interface router ini harus berada pada area tertentu, bisa backbone area atau regular area ~ misal, jika area backbone , semua interface router harus ada pada area backbone
+
+    BACKBONE ROUTER : Setidaknya satu interface ~ atau semua interface berada dalam backbone area
+
+    AREA BORDER ROUTER : Router yang interfacenya terhubung ke 2 area yang berbeda, misal backbone dan area 1
+
+    AUTONOMOUS SYSTEM BOUNDARY ROUTER : Router yang salah satu interfacenya terhubung ke external network ~ dalam arti terhubung ke router yang memiliki routing
+    protocol selain OSPF, misal BGP, EIGRP dll
+    ~ bisa saja terhubung ke sesama protocol OSPF ~ tapi OSPF ini sudah beda AS
+
+  5. KONFIGURASI OSPF SINGLE AREA PADA ROS7
+
+  1. TOPOLOGI :
+  PC1-END DEVICE <---> ETH1-ROUTER1-ETH2<--->ETH2-ROUTER2-ETH1 <--->PC2-END DEVICE
+
+  2. NETWORK :
+  PC1 KE ETH1-ROUTER1 = 192.168.1.252/30
+  ETH2-ROUTER1 KE ETH2-ROUTER2 = 192.168.1.248/30
+  PC2 KE ETH1-ROUTER2 = 192.168.1.244/30
+  IP ADDRESS LOOPBACK INTERFACE ROUTER1 = 1.1.1.1
+  IP ADDRESS LOOPBACK INTERFACE ROUTER2 = 2.2.2.2
+
+  3. KONFIGURASI :
+  - SET IP ADDRESS SETIAP INTERFACE PADA MASING MASING ROUTER TERMASUK IP ADDRESS INTERFACE LOOPBACK
+  **KITA AKAN MENGGUNAKAN IP ADDRESS PADA INTERFACE LOOPBACK SEBAGAI ROUTER ID, KARENA INTERFACE LOOPBACK PADA ROS7 ADALAH INTERFACE LOGICAL YANG BISA DIKATA TIDAK PERNAH DOWN :)
+   *SEBENARNYA TANPA SET MANUAL ROUTER-ID, ROUTER AKAN MEMILIH IP ADDRESS TERTINGGI SEBAGAI ROUTER ID, TETAPI SEBAGAI STANDARD KITA TETAP SETUP LOOPBACK INTERFACE SEBAGAI ROUTER ID.
+
+  - SET ROUTER ID PADA MASING MASING ROUTER : 
+   PADA WINBOX ALURNYA = ROUTING -> ROUTER ID -> NEW -> INPUT NAME, BAGIAN SELECT DYNAMCI ID CENTANG ONLY LOOPBACK ~ UNTUK NAME KITA SEPAKAT MENAMAKAN = R-ID
+
+  - SET INSTANCE PADA MASING MASING  ~ SET INSTANCE PADA OSPF ADALAH PENTING, TANPA SET INSTANCE OSPF TIDAK AKAN BISA BERJALAN.
+  "/routing/ospf/instance
+   add name=ospf-instance router-id=R-ID"
+
+  - SET AREA 0 / BACKBONE AREA ~ MASING MASING ROUTER
+  "/routing/ospf/area
+   add name=backbone area-id=0.0.0.0 instance=ospf-instance"
+
+  - SET OSPF NETWORK ~ PADA MASING MASING ROUTER
+  "/routing/ospf/interface-template
+   add interfaces=ETH1 area=backbone passive
+   add interfaces=ETH2 area=backbone"
+
+   KARENA HANYA ETH2 PADA MASING MASING ROUTER YANG AKAN MENJADI OSPF NETWORK DAN ETH1 KE END DEVICE,
+   OTOMATIS HANYA ETH2 PADA ROUTER 1 DAN 2 YANG AKAN MEMBUTUHKAN OSPF PAKET SEDANGKAN ETH1 PADA ROUTER 1 DAN 2 HANYA PERLU DI ADVERTISE SAJA NETWORKNYA
+   KARENA ITU PADA INTERFACE TEMPLATE OSPF ETH1 AREA=BACKBONE TERDAPAT OPTION "PASSIVE" <add interfaces=ETH1 area=backbone passive>
+
+   - CEK STATE OSPF NEIGHBOR ~ JIKA SUKSES STATENYA FULL
+   "/routing/ospf/neighbor/print"
+   cari bagian state harusnya = full dan router-id = "masing masing router-id router tetangga, jika di router1 muncul router-id router2"
+
+   ** jika state = full, harusnya ping dari PC1 ke PC2 bisa berkomunikasi 
+
+  - "KESIMPULAN SECARA UMUM SETUP OSPF INI TUJUANYA PADA AKHIRNYA PEMILIHAN MANA INTERFACE YANG KE ROUTER NEIGHBOR DAN MANA YANG KE END DEVICE
+    YANG KE ROUTER NEIGHBOR BUTUH OSPF PACKET, DAN YANG KE END DEVICE NETWORKNYA HANYA BUTUH DI ADVERTISE" 
+
+--- TAMBAHAN : SESUAI JUDUL STUDI KASUS OSPF SINGLE AREA + FLOATING STATIC ROUTE SEBAGAI JALUR BACKUP ~ KITA AKAN SETUP
+*** JADI SEMISAL ROUTER1 DAN ROUTER2 INI BERADA PADA LOKASI YANG BERBEDA YANG SANGAT JAUH SEHINGGA BISA DIHUBUNGKAN ~ MISAL RADIO PTP
+    JADI SEMISAL RADIO PTP INI DOWN, JALUR KOMUNIKASI ROUTER1 DAN ROUTER2 LEWAT INTERNET
+
+    TOPOLOGI :
+    - ETH3-ROUTER1 = KE INTERNET
+    - ETH3-ROUTER2 = KE INTERNET
+    - KITA AKAN MENGGUNAKAN TUNNEL VPN L2TP + IPSEC 
+    - SAYA TIDAK BAHAS CONFIGNYA ~ BISA CARI DI GOOGLE SETUP TUNNEL 
+    - SAYA HANYA MEMBAHAS KONSEP STATIC ROUTE SEBAGAI JALUR ROUTING BACKUP JIKA OSPF SINGLE AREA DOWN
+    - JADI SETELAH KEDUA ROUTER BERHASIL MECIPTAKAN TUNNEL DAN MASING MASING MEMILIKI IP LOKAL DARI TUNNEL ~ MISAL
+      IP ADDRESS INTERFACE TUNNEL ROUTER1 = 192.168.2.254
+      IP ADDRESS INTERFACE TUNNEL ROUTER2 = 192.168.2.253
+
+    KONFIGURASI :
+    - ROUTING NETWORK END DEVICE PADA ROUTER TUJUAN VIA IP ADDRESS TUNNEL
+      PADA ROUTER1 = "ip route add dst-address=192.168.1.244/30 gateway=192.168.2.253 distance=111"
+      PADA ROUTER2 = "ip route add dst-address=192.168.1.252/30 gateway=192.168.2.254 distance=111"
+
+    - YA KUNCINYA ADA PADA DISTANCE SESUAI ATURAN UNIVERSAL PADA ROUTING = DISTANCE LEBIH KECIL AKAN DIDAHULUKAN ~ DALAM HAL INI OSPF MEMILIKI DISTANCE YANG LEBIH KECIL = 110
+    "TAPI INTINYA BUKAN PADA DISTANCE BISA MENJADI BACKUP, TAPI DST-ADDRESS MEMANG DITUJUKAN KE TUJUAN YANG SAMA DENGAN ROUTING TABLE PADA OSPF" ~ Fiance Ticoalu.
+      
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
